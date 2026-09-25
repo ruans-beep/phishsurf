@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Scan history · Phishsurf{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Scan history</h1>
+  <table class="results">
+    <thead><tr><th>Domain</th><th>Status</th><th>Created</th><th>Candidates</th><th></th></tr></thead>
+    <tbody>
+    {% for s in scans %}
+      <tr>
+        <td>{{ s.domain }}</td>
+        <td><span class="badge badge-{{ s.status }}">{{ s.status }}</span></td>
+        <td>{{ s.created_at.strftime("%Y-%m-%d %H:%M UTC") if s.created_at else "" }}</td>
+        <td>{{ s.candidate_count }}</td>
+        <td><a href="/scans/{{ s.id }}">View</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No scans yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

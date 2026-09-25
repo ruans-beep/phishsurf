@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Scan {{ scan.domain }} · Phishsurf{% endblock %}
+{% block head %}
+{% if auto_refresh %}<meta http-equiv="refresh" content="5">{% endif %}
+{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{{ scan.domain }}</h1>
+  <p class="meta">
+    Status: <span class="badge badge-{{ scan.status }}">{{ scan.status }}</span>
+    &middot; Lookback: {{ scan.days }}d
+    &middot; Limit: {{ scan.limit }}
+    &middot; Candidates checked: {{ scan.candidate_count }}
+    &middot; <a href="/scans/{{ scan.id }}.json">Download JSON</a>
+  </p>
+  {% if scan.error_message %}<p class="error">{{ scan.error_message }}</p>{% endif %}
+  <p class="muted">Candidates for human review. Do not file a takedown from score alone.</p>
+
+  {% if results %}
+  <table class="results">
+    <thead>
+      <tr><th>Domain</th><th>Score</th><th>Label</th><th>Signals</th><th>Evidence</th></tr>
+    </thead>
+    <tbody>
+    {% for r in results %}
+      <tr>
+        <td>{{ r.candidate_domain }}</td>
+        <td class="score">{{ r.score }}</td>
+        <td><span class="label label-{{ r.label }}">{{ r.label }}</span></td>
+        <td class="signals">{{ r.signals|join(", ") }}</td>
+        <td class="evidence">
+          {% if r.evidence.dns and (r.evidence.dns.a or r.evidence.dns.aaaa) %}
+            <a href="https://dnschecker.org/#A/{{ r.candidate_domain }}" target="_blank" rel="noopener">DNS</a>
+          {% endif %}
+          {% if r.evidence.certificate %}
+            <a href="https://crt.sh/?q={{ r.candidate_domain }}" target="_blank" rel="noopener">crt.sh</a>
+          {% endif %}
+          {% if r.evidence.urlscan_hit %}
+            <a href="https://urlscan.io/search/#{{ r.candidate_domain }}" target="_blank" rel="noopener">urlscan</a>
+          {% endif %}
+          {% if r.evidence.page and r.evidence.page.reachable %}
+            <a href="http://{{ r.candidate_domain }}/" target="_blank" rel="noopener">site</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% elif scan.status == "done" %}
+    <p class="muted">No candidates scored above the noise floor.</p>
+  {% else %}
+    <p class="muted">Scan in progress&hellip; this page refreshes automatically.</p>
+  {% endif %}
+</div>
+{% endblock %}
