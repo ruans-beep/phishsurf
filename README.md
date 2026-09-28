@@ -160,6 +160,19 @@ it over the Dockerfile CMD.)
   your network tolerates more concurrent resolver queries.
 - Every enrichment call fails soft — a missing crt.sh/urlscan/RDAP result
   lowers evidence for that candidate, it never aborts the scan.
+- Candidate generation only covers close, single-edit-style lookalikes
+  (edit-distance-1, adjacent-key typos, hyphenation, combosquat keywords,
+  homoglyphs, TLD swaps) — this is intentional (see the scoring weights
+  above) and won't catch a domain that's several edits away from the brand
+  token or an unrelated-looking abbreviation. The edit-distance-1 and
+  adjacent-key spaces are also far bigger than any practical per-scan
+  budget (a ~14-character brand has ~12,000 possible single-edit domains
+  alone), so generation randomly samples a different slice of that space
+  on every scan rather than always checking the same subset — a specific
+  real squat isn't guaranteed to turn up in any one run, but re-scanning
+  periodically covers more ground over time. Raising "candidates to check"
+  toward the 3,000 ceiling also raises the odds per scan, at the cost of
+  scan time (see above).
 - This tool surfaces candidates for a human to review. Scores are a
   triage aid, not a verdict — don't file a takedown, abuse report, or
   legal action from a score alone.

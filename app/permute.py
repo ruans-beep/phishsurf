@@ -3,6 +3,7 @@
 No database or network dependencies on purpose: this module is pure and unit
 tested directly (see tests/test_permute.py).
 """
+import random
 import re
 
 import tldextract
@@ -32,7 +33,11 @@ _VALID_LABEL = re.compile(r"^[a-z0-9-]+$")
 
 # Priority order used when the candidate pool has to be truncated to the
 # cap, so a small "limit" still yields a mix of techniques instead of being
-# dominated by edit-distance noise.
+# dominated by edit-distance noise. Each technique advances one base per
+# round-robin round — kept equal on purpose, so the small/finite techniques
+# (combosquat, tld_swap, hyphenation, homoglyph) reliably run to completion
+# within any reasonably-sized cap instead of getting starved by the much
+# larger edit_distance_1/adjacent_key search spaces.
 TECHNIQUE_ORDER = ["combosquat", "tld_swap", "hyphenation", "homoglyph", "adjacent_key", "edit_distance_1"]
 
 DEFAULT_HARD_CAP = 3000
@@ -132,6 +137,17 @@ def generate_candidates(official_domain: str, limit: int = DEFAULT_HARD_CAP) -> 
         "homoglyph": [(b, True) for b in sorted(_homoglyph_variants(token))],
         "tld_swap": [(token, False)],
     }
+    # Bases are sorted above only to make the underlying set deterministic;
+    # shuffle the consumption order so a capped scan samples a different
+    # cross-section each time instead of always the same alphabetically-early
+    # slice (which would otherwise permanently miss anything sorting late,
+    # e.g. a 't' inserted at a given position when a/b/c/... come first).
+    for bases in technique_bases.values():
+        random.shuffle(bases)
+
+    # Also shuffle per-TLD order so a truncated mid-base expansion doesn't
+    # always favor the same TLDs.
+    tlds = list(TLDS)
 
     results = {}
     idx = {t: 0 for t in TECHNIQUE_ORDER}
@@ -152,7 +168,8 @@ def generate_candidates(official_domain: str, limit: int = DEFAULT_HARD_CAP) -> 
             if not base or not _VALID_LABEL.match(base):
                 continue
 
-            for tld in TLDS:
+            random.shuffle(tlds)
+            for tld in tlds:
                 fqdn = f"{base}.{tld}"
                 if fqdn in allow or fqdn in results:
                     continue
