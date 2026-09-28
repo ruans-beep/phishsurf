@@ -78,13 +78,28 @@ def label_for(signals: Signals) -> str:
     if signals.redirects_to_official:
         return "possible_false_positive"
 
-    live_clone_evidence = (
-        signals.hotlinks_official_assets
-        or signals.shopify_fingerprint_foreign
-        or signals.title_or_og_has_brand
+    strong_clone_evidence = signals.hotlinks_official_assets or signals.shopify_fingerprint_foreign
+
+    # A bare title/OG substring match is weak on its own: plenty of real,
+    # unrelated businesses happen to share a brand-token-like prefix (e.g.
+    # "Airnexion" or "AirNexa Solutions" vs a brand called "Airnex" —
+    # neither is impersonating anything, they just start with similar
+    # letters). This matters more now that crt.sh discovery (see
+    # scanner.py) folds in domains found via a broad prefix search rather
+    # than only ones generated as deliberate typo patterns, so it can't
+    # rely on the candidate having come from a suspicious technique. Only
+    # count a title/OG match as clone evidence when something a
+    # coincidental namesake wouldn't have corroborates it: a suspicious
+    # squat pattern, a recent registration, or an independent urlscan hit.
+    corroborated_title_match = signals.title_or_og_has_brand and (
+        signals.combosquat_keyword
+        or signals.edit_distance_1
+        or signals.homoglyph
+        or signals.domain_created_in_window
+        or signals.urlscan_hit
     )
 
-    strong_clone_evidence = signals.hotlinks_official_assets or signals.shopify_fingerprint_foreign
+    live_clone_evidence = strong_clone_evidence or corroborated_title_match
 
     if signals.resolves and signals.brand_in_host and strong_clone_evidence:
         return "confirmed_lookalike_live"

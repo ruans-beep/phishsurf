@@ -2,6 +2,7 @@
 soft: on any error it returns an empty/falsy result instead of raising, so
 one flaky lookup never aborts a whole scan.
 """
+import logging
 import re
 from datetime import datetime
 from html.parser import HTMLParser
@@ -11,6 +12,8 @@ import dns.resolver
 import requests
 
 from . import config
+
+logger = logging.getLogger("phishsurf.enrich")
 
 DNS_TIMEOUT = 4
 HTTP_TIMEOUT = 8
@@ -116,9 +119,14 @@ def rdap_lookup(domain: str) -> dict:
             headers={"User-Agent": USER_AGENT},
         )
         if resp.status_code != 200:
+            # Fail soft (empty result), but visible in logs — RDAP
+            # reliability under bulk concurrent load hasn't been fully
+            # verified in production, and this signal matters for scoring.
+            logger.debug("rdap_lookup non-200 for %s: %s", domain, resp.status_code)
             return {}
         data = resp.json()
-    except Exception:
+    except Exception as exc:
+        logger.debug("rdap_lookup failed for %s: %s", domain, exc)
         return {}
 
     created = None

@@ -31,6 +31,71 @@ def test_redirects_to_official_is_not_a_clone_even_with_other_signals_firing():
     assert "redirects_to_official" in active
 
 
+def test_coincidental_namesake_is_not_labeled_a_clone():
+    # Real example: crt.sh prefix-search discovery for brand token "airnex"
+    # turned up "airnexion.com" (a 19-year-old wireless comms company) and
+    # "airnexasolutions.com" (an HVAC contractor) — both genuinely contain
+    # "airnex" in their title, and brand_in_host is trivially true since
+    # crt.sh's prefix search guarantees it, but neither is impersonating
+    # anything. A bare title match with no corroborating squat signal must
+    # not be enough for "likely_clone_shop".
+    signals = Signals(
+        brand_in_host=True,
+        cert_in_window=True,
+        title_or_og_has_brand=True,
+        resolves=True,
+    )
+    score, label, active = score_result(signals)
+    assert label != "likely_clone_shop"
+    assert label != "confirmed_lookalike_live"
+
+
+def test_title_match_corroborated_by_combosquat_keyword_is_a_clone():
+    signals = Signals(
+        brand_in_host=True,
+        cert_in_window=True,
+        title_or_og_has_brand=True,
+        combosquat_keyword=True,
+        resolves=True,
+    )
+    score, label, active = score_result(signals)
+    assert label == "likely_clone_shop"
+
+
+def test_title_match_corroborated_by_recent_registration_is_a_clone():
+    signals = Signals(
+        brand_in_host=True,
+        cert_in_window=True,
+        title_or_og_has_brand=True,
+        domain_created_in_window=True,
+        resolves=True,
+    )
+    score, label, active = score_result(signals)
+    assert label == "likely_clone_shop"
+
+
+def test_strong_evidence_alone_is_still_a_clone_without_corroboration():
+    # Shopify fingerprint / hotlinked assets are strong enough on their
+    # own — they aren't the weak signal this fix targets. Combined with
+    # brand_in_host this actually earns the higher confirmed tier.
+    signals = Signals(
+        brand_in_host=True,
+        shopify_fingerprint_foreign=True,
+        resolves=True,
+    )
+    score, label, active = score_result(signals)
+    assert label == "confirmed_lookalike_live"
+
+    # Without brand_in_host, strong evidence alone still clears the bar
+    # for the lower "likely_clone_shop" tier.
+    signals_no_brand_in_host = Signals(
+        shopify_fingerprint_foreign=True,
+        resolves=True,
+    )
+    score, label, active = score_result(signals_no_brand_in_host)
+    assert label == "likely_clone_shop"
+
+
 def test_confirmed_lookalike_live_requires_brand_in_host_and_strong_evidence():
     signals = Signals(
         brand_in_host=True,
