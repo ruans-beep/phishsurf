@@ -4,6 +4,7 @@ one flaky lookup never aborts a whole scan.
 """
 import logging
 import re
+import time
 from datetime import datetime
 from html.parser import HTMLParser
 from urllib.parse import urlparse
@@ -17,6 +18,16 @@ logger = logging.getLogger("phishsurf.enrich")
 
 DNS_TIMEOUT = 4
 HTTP_TIMEOUT = 8
+# crt.sh's search is a genuinely expensive query on their end — measured
+# directly: identical prefix-search queries took anywhere from 4s to 11s+
+# across repeated attempts. The general HTTP_TIMEOUT above is tuned for
+# lightweight RDAP/homepage-fetch calls and was silently dropping this
+# specific, high-value lookup on the slower end of that range (a timeout
+# just triggers the normal fail-soft path — no error, indistinguishable
+# from "found nothing"). Gets its own longer timeout, plus one retry for
+# ordinary transient failures.
+CRTSH_TIMEOUT = 25
+CRTSH_RETRIES = 2
 MAX_BODY_BYTES = 200_000
 USER_AGENT = "PhishsurfBot/1.0 (+internal Bustem brand-protection scanner)"
 
@@ -44,16 +55,29 @@ def resolve_dns(domain: str) -> dict:
 
 
 def crtsh_search(query: str, since: datetime) -> list:
-    try:
-        resp = requests.get(
-            "https://crt.sh/",
-            params={"q": query, "output": "json"},
-            timeout=HTTP_TIMEOUT,
-            headers={"User-Agent": USER_AGENT},
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-    except Exception:
+    rows = None
+    last_error = None
+    for attempt in range(1, CRTSH_RETRIES + 2):
+        if attempt > 1:
+            time.sleep(2)
+        try:
+            resp = requests.get(
+                "https://crt.sh/",
+                params={"q": query, "output": "json"},
+                timeout=CRTSH_TIMEOUT,
+                headers={"User-Agent": USER_AGENT},
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+            break
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "crtsh_search attempt %d/%d failed for %r: %s",
+                attempt, CRTSH_RETRIES + 1, query, exc,
+            )
+    if rows is None:
+        logger.warning("crtsh_search giving up on %r after %d attempts: %s", query, CRTSH_RETRIES + 1, last_error)
         return []
 
     out = []
