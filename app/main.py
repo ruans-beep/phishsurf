@@ -1,5 +1,6 @@
 import pathlib
 import re
+import threading
 from typing import Optional
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
@@ -34,7 +35,9 @@ def on_startup():
         for scan in stuck:
             scan.status = "queued"
         db.commit()
-    scanner.process_queue()
+    # Run in the background: a leftover queued scan can take minutes, and
+    # must never block the app from binding its port / passing healthchecks.
+    threading.Thread(target=scanner.process_queue, daemon=True).start()
 
 
 @app.get("/health")
