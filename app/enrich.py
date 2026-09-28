@@ -5,6 +5,7 @@ one flaky lookup never aborts a whole scan.
 import re
 from datetime import datetime
 from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 import dns.resolver
 import requests
@@ -170,6 +171,9 @@ class _PageParser(HTMLParser):
 
 
 def fetch_page(url: str, official_apex: str, brand_token: str) -> dict:
+    requested_host = (urlparse(url).hostname or "").lower()
+    official_hosts = {official_apex.lower(), f"www.{official_apex.lower()}"}
+
     try:
         resp = requests.get(
             url,
@@ -178,6 +182,31 @@ def fetch_page(url: str, official_apex: str, brand_token: str) -> dict:
             stream=True,
             allow_redirects=True,
         )
+        final_host = (urlparse(resp.url).hostname or "").lower()
+        status_code = resp.status_code
+
+        # A candidate that just forwards to some other domain isn't hosting
+        # anything itself — scoring on the *destination's* content would
+        # misattribute it (most commonly: a defensively-registered domain
+        # redirecting straight to the real brand site would otherwise score
+        # as a "clone" because the official site obviously matches the
+        # brand). Only content actually served by the candidate's own host
+        # counts as evidence about the candidate.
+        if final_host and final_host != requested_host:
+            return {
+                "reachable": True,
+                "status_code": status_code,
+                "redirected_off_domain": True,
+                "redirect_target": final_host,
+                "redirects_to_official": final_host in official_hosts,
+                "title": "",
+                "og": {},
+                "shopify_fingerprint": False,
+                "hotlinks_official_assets": False,
+                "brand_copy": False,
+                "title_or_og_has_brand": False,
+            }
+
         body = b""
         for chunk in resp.iter_content(8192):
             if not chunk:
@@ -186,7 +215,6 @@ def fetch_page(url: str, official_apex: str, brand_token: str) -> dict:
             if len(body) >= MAX_BODY_BYTES:
                 break
         text = body.decode(resp.encoding or "utf-8", errors="ignore")
-        status_code = resp.status_code
     except Exception:
         return {"reachable": False}
 
@@ -208,6 +236,9 @@ def fetch_page(url: str, official_apex: str, brand_token: str) -> dict:
     return {
         "reachable": True,
         "status_code": status_code,
+        "redirected_off_domain": False,
+        "redirect_target": None,
+        "redirects_to_official": False,
         "title": parser.title.strip()[:200],
         "og": parser.og,
         "shopify_fingerprint": shopify_fingerprint,

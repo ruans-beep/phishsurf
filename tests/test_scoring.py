@@ -14,6 +14,23 @@ def test_allowlisted_wins_regardless_of_other_signals():
     assert "allowlisted" in active
 
 
+def test_redirects_to_official_is_not_a_clone_even_with_other_signals_firing():
+    # A domain that just forwards to the real brand site (common for
+    # defensive registrations) must never be labeled as a clone, no matter
+    # what else lines up (brand in host, cert issued in window, etc).
+    signals = Signals(
+        redirects_to_official=True,
+        brand_in_host=True,
+        combosquat_keyword=True,
+        domain_created_in_window=True,
+        cert_in_window=True,
+        resolves=True,
+    )
+    score, label, active = score_result(signals)
+    assert label == "possible_false_positive"
+    assert "redirects_to_official" in active
+
+
 def test_confirmed_lookalike_live_requires_brand_in_host_and_strong_evidence():
     signals = Signals(
         brand_in_host=True,

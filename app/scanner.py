@@ -211,10 +211,12 @@ def _score_candidates(candidates, dns_map, crt_hits_by_domain, rdap_map, page_ma
                 crt and "let's encrypt" in (crt.get("issuer") or "").lower() and created_in_window
             ),
             allowlisted=d in allow,
+            redirects_to_official=bool(page.get("redirects_to_official")),
             news_wiki_app_store=news_wiki,
             parked_no_brand_content=(
                 resolves
                 and bool(page.get("reachable"))
+                and not page.get("redirected_off_domain")
                 and not page.get("title_or_og_has_brand")
                 and not page.get("shopify_fingerprint")
                 and not page.get("hotlinks_official_assets")

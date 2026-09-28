@@ -10,6 +10,7 @@ import tldextract
 COMBOSQUAT_WORDS = [
     "official", "shop", "store", "sale", "outlet", "deals", "vip", "hq",
     "usa", "login", "checkout", "secure", "get", "buy", "my",
+    "online", "direct", "original", "world", "best", "premium", "today",
 ]
 
 TLDS = ["com", "net", "org", "co", "io", "shop", "store", "online", "site", "app", "us", "co.uk"]

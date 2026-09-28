@@ -58,6 +58,15 @@ def test_combosquat_variants_present():
     assert "shop-truniagen.com" in domains
 
 
+def test_combosquat_covers_online_variant():
+    # Regression: "online" was missing from COMBOSQUAT_WORDS, so a
+    # real-world domain like brandnameonline.shop was silently never
+    # generated as a candidate at all.
+    candidates = generate_candidates("truniagen.com", limit=3000)
+    domains = {c["domain"] for c in candidates}
+    assert "truniagenonline.shop" in domains
+
+
 def test_tld_swap_present():
     candidates = generate_candidates("truniagen.com", limit=3000)
     domains = {c["domain"] for c in candidates}

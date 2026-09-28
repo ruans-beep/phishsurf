@@ -18,6 +18,7 @@ WEIGHTS = {
     "edit_distance_1": 8,
     "letsencrypt_new_domain": 5,
     "allowlisted": -40,
+    "redirects_to_official": -30,
     "news_wiki_app_store": -25,
     "parked_no_brand_content": -20,
     "old_domain_no_clone_content": -15,
@@ -48,6 +49,7 @@ class Signals:
     edit_distance_1: bool = False
     letsencrypt_new_domain: bool = False
     allowlisted: bool = False
+    redirects_to_official: bool = False
     news_wiki_app_store: bool = False
     parked_no_brand_content: bool = False
     old_domain_no_clone_content: bool = False
@@ -66,6 +68,14 @@ def compute_score(signals: Signals) -> int:
 
 def label_for(signals: Signals) -> str:
     if signals.allowlisted:
+        return "possible_false_positive"
+
+    # A candidate that just forwards to the real brand site isn't hosting
+    # a clone — it's most likely a defensive registration pointed at the
+    # official store. Its own page content never gets counted as clone
+    # evidence (see enrich.fetch_page), but be explicit here too so this
+    # can never be mislabeled even if other signals (cert, DNS) fire.
+    if signals.redirects_to_official:
         return "possible_false_positive"
 
     live_clone_evidence = (
