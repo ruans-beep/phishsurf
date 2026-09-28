@@ -8,7 +8,16 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./phishsurf.db")
 URLSCAN_API_KEY = os.environ.get("URLSCAN_API_KEY") or None
 
 LOOKBACK_DAYS_DEFAULT = int(os.environ.get("LOOKBACK_DAYS_DEFAULT", "30"))
-FETCH_TOP_N = int(os.environ.get("FETCH_TOP_N", "25"))
+
+# How many resolving candidates get a homepage fetch. Resolving candidates
+# discovered via crt.sh/urlscan are ordered first (see scanner.py), so a
+# real squat farm can easily produce more resolving hosts than a small
+# cap covers — seen directly in testing: two candidates that genuinely
+# resolved (valid Cloudflare-fronted infra, real certs) never got fetched
+# because 25+ discovered-and-resolving domains filled the cap first,
+# leaving them with no content evidence at all. Raised to give real finds
+# more headroom; still a real time/thoroughness tradeoff (see README).
+FETCH_TOP_N = int(os.environ.get("FETCH_TOP_N", "60"))
 
 # Thread pool size for RDAP lookups and homepage fetches — kept
 # conservative because those hit real external servers/websites where

@@ -34,6 +34,76 @@ USER_AGENT = "PhishsurfBot/1.0 (+internal Bustem brand-protection scanner)"
 SHOPIFY_MARKERS = ("cdn.shopify.com", "shopify.theme", "/cdn/shop/", "shopify-analytics", "x-shopid")
 BRAND_COPY_RE = re.compile(r"official store|% ?off|percent off", re.IGNORECASE)
 
+# Generic hosting/CDN error templates that echo the requested domain name
+# in their own title (e.g. Cloudflare's "DNS resolution error | {domain} |
+# Cloudflare"). Found via a real false positive: a dead domain proxied
+# through Cloudflare "matched" the brand purely because the error page
+# restates the domain you tried to reach — not because of any real content.
+# These aren't brand mentions, they're infrastructure telling you the site
+# isn't actually there.
+_INFRA_ERROR_MARKERS = (
+    "dns resolution error",
+    "web server is down",
+    "this site can't be reached",
+    "account has been suspended",
+    "domain is parked",
+    "error 1001",
+    "error 522",
+    "error 523",
+    "error 525",
+)
+
+
+def _looks_like_infra_error_page(title: str) -> bool:
+    lower = (title or "").lower()
+    return any(marker in lower for marker in _INFRA_ERROR_MARKERS)
+
+# OG fields whose *value* is itself a URL. These trivially contain the
+# page's own domain name (and therefore the brand token, for any candidate
+# we bothered to fetch — it's already in the domain by construction), which
+# makes them useless — actively misleading — as "does this content mention
+# the brand" evidence. Real brand mentions live in title/description/
+# site_name, not in a restated URL.
+_URL_LIKE_OG_KEYS = {
+    "og:url", "og:image", "og:image:url", "og:image:secure_url",
+    "og:video", "og:video:url", "og:video:secure_url", "og:audio", "og:audio:url",
+}
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]")
+
+
+def _normalize_text(s: str) -> str:
+    return _NON_ALNUM_RE.sub("", (s or "").lower())
+
+
+def content_mentions_brand(title: str, og: dict, brand_token: str) -> bool:
+    """Whether a page's actual descriptive content — not its own URL —
+    mentions the brand token.
+
+    Two fixes over a naive substring check, both found from real false
+    positives/negatives in production:
+    - Strips spaces/punctuation before matching, so a multi-word brand
+      name ("Bloom Nutrition") still matches a concatenated domain token
+      ("bloomnu") instead of silently missing every real match.
+    - Skips URL-shaped OG fields (og:url, og:image, ...): those always
+      contain the page's own domain name regardless of real content, so
+      checking them just measures "is the brand token in this domain
+      name" — already true by construction — not genuine brand mentions.
+      This is also what let a generic Cloudflare "DNS resolution error"
+      page (which echoes the requested domain in its own title) trivially
+      "match" any dead domain.
+    """
+    token = _normalize_text(brand_token)
+    if not token:
+        return False
+    if token in _normalize_text(title):
+        return True
+    for key, value in (og or {}).items():
+        if (key or "").lower() in _URL_LIKE_OG_KEYS:
+            continue
+        if token in _normalize_text(value):
+            return True
+    return False
+
 
 def resolve_dns(domain: str) -> dict:
     out = {"a": [], "aaaa": [], "cname": None}
@@ -259,10 +329,13 @@ def fetch_page(url: str, official_apex: str, brand_token: str) -> dict:
     lower = text.lower()
     shopify_fingerprint = any(marker in lower for marker in SHOPIFY_MARKERS)
     hotlinks_official = any(official_apex in (asset or "").lower() for asset in parser.asset_urls)
-    brand_copy = bool(BRAND_COPY_RE.search(lower))
-    title_or_og_has_brand = bool(brand_token) and (
-        brand_token in parser.title.lower()
-        or any(brand_token in (v or "").lower() for v in parser.og.values())
+    is_infra_error_page = _looks_like_infra_error_page(parser.title)
+    # An infra error page (dead domain, parked, suspended) isn't real
+    # content — its title/OG tags reflect hosting-provider boilerplate,
+    # not the site. Don't treat either as brand or clone-copy evidence.
+    brand_copy = bool(BRAND_COPY_RE.search(lower)) and not is_infra_error_page
+    title_or_og_has_brand = not is_infra_error_page and content_mentions_brand(
+        parser.title, parser.og, brand_token
     )
 
     return {

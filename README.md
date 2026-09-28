@@ -159,7 +159,7 @@ generation and scoring/labeling directly — no database required.
 | `DATABASE_URL` | production | local SQLite | Injected automatically by Railway's Postgres plugin |
 | `URLSCAN_API_KEY` | no | unset | Enables authenticated urlscan.io search |
 | `LOOKBACK_DAYS_DEFAULT` | no | `30` | Default lookback window on the new-scan form |
-| `FETCH_TOP_N` | no | `25` | How many resolving hosts get a homepage fetch |
+| `FETCH_TOP_N` | no | `60` | How many resolving hosts get a homepage fetch |
 | `MAX_CONCURRENCY` | no | `5` | Thread pool size for RDAP lookups and homepage fetches |
 | `DNS_CONCURRENCY` | no | `25` | Thread pool size for DNS resolution (the dominant cost of a scan) |
 | `CANDIDATE_HARD_CAP` | no | `3000` | Absolute ceiling on candidates per scan, regardless of the form |
@@ -215,6 +215,14 @@ it over the Dockerfile CMD.)
   limit" you set, raise the limit and re-run — the discovered domains rank
   ahead of blind guesses already (they score higher, since they carry real
   certificate evidence), but ties past the limit get cut off.
+- The `title_or_og_has_brand` signal (see `content_mentions_brand` in
+  `app/enrich.py`) strips whitespace/punctuation before matching, so a
+  multi-word brand name ("Bloom Nutrition") still matches a concatenated
+  domain token ("bloomnu"), and ignores URL-shaped OG fields (`og:url`,
+  `og:image`, ...) and generic hosting-provider error pages (a dead domain
+  proxied through Cloudflare echoes the requested domain in its own error
+  title) — both were confirmed false-positive sources in testing, since
+  neither reflects the page's actual content.
 - Candidate generation only covers close, single-edit-style lookalikes
   (edit-distance-1, adjacent-key typos, hyphenation, combosquat keywords,
   homoglyphs, TLD swaps) — this is intentional (see the scoring weights
