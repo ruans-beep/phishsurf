@@ -38,6 +38,34 @@ Only one scan runs at a time (enforced with a Postgres row lock); anything
 submitted while a scan is running is queued and picked up automatically as
 soon as the current scan finishes.
 
+### Live watcher (`/brands`)
+
+On-demand scans guess domains in advance and check if they exist — which
+fundamentally can't cover every squat a determined registrant might pick
+(see "Notes and limits" below). The live watcher takes the opposite
+approach: instead of guessing, it tails a public
+[certificate-transparency stream](https://certstream.calidog.io/) — every
+domain that gets a new TLS certificate issued, anywhere, shows up on this
+feed within seconds — and fuzzy-matches each one against your watched
+brands. A match runs through the same DNS/RDAP/homepage-fetch enrichment
+and scoring as an on-demand scan and gets persisted, so it catches real
+squats the permutation generator could never predict, without you having
+to find them manually first.
+
+- Add a brand at `/brands`; it's matched from that point forward (not
+  retroactively — the watcher only sees certificates issued after a brand
+  is added).
+- Matching uses [rapidfuzz](https://github.com/rapidfuzz/RapidFuzz)
+  (`fuzz.ratio`) gated by a cheap 4-character-fragment prefilter, tuned
+  against real squat examples — see `tests/test_fuzzy.py` for the exact
+  domains used to pick `FUZZY_MATCH_THRESHOLD`.
+- The `/brands` page shows live connection status (connected since, last
+  certificate seen, message count) so a silently-stalled connection is
+  visible instead of failing quietly. A `watcher heartbeat` line also logs
+  every 5 minutes for the same reason.
+- Runs as a background thread started at app startup; never blocks request
+  handling or the app's healthcheck.
+
 ### Scoring weights
 
 | Signal | Weight |
@@ -70,12 +98,18 @@ Score is clamped to 0–100.
 | `GET /scans/{id}` | Status + results table, auto-refreshes while running |
 | `GET /scans/{id}.json` | Download the scan as JSON |
 | `GET /scans` | Scan history |
+| `GET /brands` | Live watcher: watchlist + connection status, add a brand |
+| `POST /brands` | Add a brand to the live watchlist |
+| `POST /brands/{id}/toggle` | Pause/resume watching a brand |
+| `GET /brands/{id}` | Hits the live watcher has found for a brand |
 | `GET /health` | Unauthenticated health check |
 
 ## Stack
 
 Python 3.12, FastAPI, Jinja2 + static CSS, SQLAlchemy + Postgres,
-background scanning via FastAPI `BackgroundTasks` with a DB row lock.
+background scanning via FastAPI `BackgroundTasks` with a DB row lock, plus
+a background-thread live watcher (`websocket-client` + `rapidfuzz`) tailing
+a certificate-transparency stream.
 
 ## Local development
 
@@ -121,6 +155,11 @@ generation and scoring/labeling directly — no database required.
 | `DNS_CONCURRENCY` | no | `25` | Thread pool size for DNS resolution (the dominant cost of a scan) |
 | `CANDIDATE_HARD_CAP` | no | `3000` | Absolute ceiling on candidates per scan, regardless of the form |
 | `DEFAULT_CANDIDATE_LIMIT` | no | `600` | Default "candidates to check" value on the new-scan form |
+| `WATCH_ENABLED` | no | `true` | Set `false` to disable the live watcher entirely |
+| `CERTSTREAM_URL` | no | `wss://certstream.calidog.io/` | Certificate-transparency stream the watcher tails |
+| `FUZZY_MATCH_THRESHOLD` | no | `58` | Similarity threshold (0-100) for the watcher's fuzzy matcher |
+| `WATCH_ENRICH_CONCURRENCY` | no | `5` | Thread pool size for enriching/scoring watcher matches |
+| `BRAND_REFRESH_SECONDS` | no | `60` | How often the watcher re-reads the brand watchlist from the DB |
 
 Generate a `SECRET_KEY` with:
 
@@ -176,6 +215,20 @@ it over the Dockerfile CMD.)
 - This tool surfaces candidates for a human to review. Scores are a
   triage aid, not a verdict — don't file a takedown, abuse report, or
   legal action from a score alone.
+- **The live watcher depends on a free public third-party service**
+  (`certstream.calidog.io`) that isn't operated by Bustem and isn't
+  guaranteed uptime or throughput — its own history includes periods of
+  degraded service. In testing, the websocket connection handshake
+  succeeded but no certificates were observed in a sustained window,
+  which could mean the service was quiet at that moment or genuinely
+  degraded; this couldn't be fully verified from the dev environment used
+  to build this. **Check `/brands` after deploying** — it shows connection
+  status and a running count of certificates seen. If `messages_seen`
+  stays at 0 for more than a few minutes after showing "connected", the
+  upstream feed itself is the problem, not this app; the watcher will keep
+  auto-reconnecting regardless, so it'll pick up on its own if/when the
+  feed recovers. If it's unreliable long-term, `CERTSTREAM_URL` can be
+  pointed at a self-hosted `certstream-server-go` instance instead.
 
 ## License
 

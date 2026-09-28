@@ -7,11 +7,11 @@ from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from . import auth, config, scanner
+from . import auth, config, permute, scanner, watcher
 from .db import SessionLocal, init_db
-from .models import Result, Scan, ScanLock
+from .models import Brand, Result, Scan, ScanLock, WatchHit
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 
@@ -38,6 +38,7 @@ def on_startup():
     # Run in the background: a leftover queued scan can take minutes, and
     # must never block the app from binding its port / passing healthchecks.
     threading.Thread(target=scanner.process_queue, daemon=True).start()
+    watcher.start_watcher()
 
 
 @app.get("/health")
@@ -208,3 +209,92 @@ def scan_history(request: Request):
     with SessionLocal() as db:
         scans = db.execute(select(Scan).order_by(Scan.created_at.desc()).limit(100)).scalars().all()
     return templates.TemplateResponse("scan_history.html", {"request": request, "scans": scans})
+
+
+@app.get("/brands", response_class=HTMLResponse)
+def list_brands(request: Request):
+    if not auth.is_authenticated(request):
+        return RedirectResponse("/login", status_code=303)
+    with SessionLocal() as db:
+        brands = db.execute(select(Brand).order_by(Brand.created_at.desc())).scalars().all()
+        hit_counts = dict(
+            db.execute(
+                select(WatchHit.brand_id, func.count(WatchHit.id)).group_by(WatchHit.brand_id)
+            ).all()
+        )
+    return templates.TemplateResponse("brands.html", {
+        "request": request,
+        "brands": brands,
+        "hit_counts": hit_counts,
+        "watch_status": watcher.get_status(),
+        "error": None,
+    })
+
+
+@app.post("/brands")
+def create_brand(request: Request, domain: str = Form(...)):
+    if not auth.is_authenticated(request):
+        return RedirectResponse("/login", status_code=303)
+
+    clean_domain = domain.strip().lower()
+    clean_domain = re.sub(r"^https?://", "", clean_domain).split("/")[0]
+
+    if not clean_domain or "." not in clean_domain or not re.match(r"^[a-z0-9.-]+$", clean_domain):
+        with SessionLocal() as db:
+            brands = db.execute(select(Brand).order_by(Brand.created_at.desc())).scalars().all()
+            hit_counts = dict(
+                db.execute(
+                    select(WatchHit.brand_id, func.count(WatchHit.id)).group_by(WatchHit.brand_id)
+                ).all()
+            )
+        return templates.TemplateResponse("brands.html", {
+            "request": request,
+            "brands": brands,
+            "hit_counts": hit_counts,
+            "watch_status": watcher.get_status(),
+            "error": "Enter a valid domain, e.g. truniagen.com",
+        }, status_code=400)
+
+    apex = permute.apex_domain(clean_domain)
+    token = permute.brand_token(clean_domain)
+
+    with SessionLocal() as db:
+        existing = db.execute(select(Brand).where(Brand.domain == apex)).scalar_one_or_none()
+        if existing is None:
+            db.add(Brand(domain=apex, brand_token=token, active=True))
+            db.commit()
+
+    watcher.refresh_brands_now()
+    return RedirectResponse("/brands", status_code=303)
+
+
+@app.post("/brands/{brand_id}/toggle")
+def toggle_brand(brand_id: str, request: Request):
+    if not auth.is_authenticated(request):
+        return RedirectResponse("/login", status_code=303)
+    with SessionLocal() as db:
+        brand = db.get(Brand, brand_id)
+        if brand is None:
+            raise HTTPException(404, "Brand not found")
+        brand.active = not brand.active
+        db.commit()
+    watcher.refresh_brands_now()
+    return RedirectResponse("/brands", status_code=303)
+
+
+@app.get("/brands/{brand_id}", response_class=HTMLResponse)
+def brand_detail(request: Request, brand_id: str):
+    if not auth.is_authenticated(request):
+        return RedirectResponse("/login", status_code=303)
+    with SessionLocal() as db:
+        brand = db.get(Brand, brand_id)
+        if brand is None:
+            raise HTTPException(404, "Brand not found")
+        hits = db.execute(
+            select(WatchHit).where(WatchHit.brand_id == brand_id).order_by(WatchHit.score.desc())
+        ).scalars().all()
+        return templates.TemplateResponse("brand_detail.html", {
+            "request": request,
+            "brand": brand,
+            "hits": hits,
+        })

@@ -37,3 +37,19 @@ DEFAULT_SCAN_LIMIT = int(os.environ.get("DEFAULT_SCAN_LIMIT", "40"))
 
 COOKIE_NAME = "phishsurf_session"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
+
+# Live watcher: tails a certificate-transparency stream and fuzzy-matches
+# every newly observed domain against the brand watchlist, instead of
+# guessing domains in advance like the on-demand scanner does.
+WATCH_ENABLED = os.environ.get("WATCH_ENABLED", "true").strip().lower() not in ("false", "0", "")
+CERTSTREAM_URL = os.environ.get("CERTSTREAM_URL", "wss://certstream.calidog.io/")
+FUZZY_MATCH_THRESHOLD = float(os.environ.get("FUZZY_MATCH_THRESHOLD", "58"))
+
+# Thread pool size for enriching/scoring watcher matches. Kept separate
+# from MAX_CONCURRENCY since it's a different, continuously-running
+# workload rather than a single scan's burst of work.
+WATCH_ENRICH_CONCURRENCY = int(os.environ.get("WATCH_ENRICH_CONCURRENCY", "5"))
+
+# How often (seconds) the watcher re-reads the active brand list from the
+# database, so a newly added/removed brand takes effect without restarting.
+BRAND_REFRESH_SECONDS = int(os.environ.get("BRAND_REFRESH_SECONDS", "60"))

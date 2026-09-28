@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Watchlist · Phishsurf{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Watchlist</h1>
+  <p class="muted">
+    Brands here are matched continuously against a live stream of newly
+    issued TLS certificates — this catches real squats the on-demand
+    scanner's permutation generator can't predict in advance. Matches show
+    up on a brand's own page as they're found.
+  </p>
+  {% if watch_status %}
+    {% if not watch_status.enabled %}
+      <p class="meta">Live watcher: <span class="badge badge-error">disabled</span> (WATCH_ENABLED=false)</p>
+    {% elif watch_status.connected %}
+      <p class="meta">Live watcher: <span class="badge badge-done">connected</span>
+        since {{ watch_status.connected_at }} &middot; {{ watch_status.messages_seen }} certificates seen
+        {% if watch_status.last_message_at %}&middot; last one at {{ watch_status.last_message_at }}{% endif %}
+      </p>
+    {% else %}
+      <p class="meta">Live watcher: <span class="badge badge-queued">connecting&hellip;</span>
+        {% if watch_status.last_error %}last error: {{ watch_status.last_error }}{% endif %}
+      </p>
+    {% endif %}
+  {% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/brands">
+    <label for="domain">Brand domain</label>
+    <input type="text" id="domain" name="domain" placeholder="truniagen.com" required>
+    <button type="submit">Add to watchlist</button>
+  </form>
+</div>
+
+<div class="card">
+  <h1>Watched brands</h1>
+  {% if brands %}
+  <table class="results">
+    <thead><tr><th>Domain</th><th>Status</th><th>Hits</th><th>Added</th><th></th></tr></thead>
+    <tbody>
+    {% for b in brands %}
+      <tr>
+        <td><a href="/brands/{{ b.id }}">{{ b.domain }}</a></td>
+        <td><span class="badge badge-{{ 'done' if b.active else 'error' }}">{{ 'watching' if b.active else 'paused' }}</span></td>
+        <td>{{ hit_counts.get(b.id, 0) }}</td>
+        <td>{{ b.created_at.strftime("%Y-%m-%d") if b.created_at else "" }}</td>
+        <td>
+          <form method="post" action="/brands/{{ b.id }}/toggle" style="display:inline">
+            <button type="submit">{{ 'Pause' if b.active else 'Resume' }}</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">No brands watched yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ brand.domain }} · Watchlist · Phishsurf{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{{ brand.domain }}</h1>
+  <p class="meta">
+    Status: <span class="badge badge-{{ 'done' if brand.active else 'error' }}">{{ 'watching' if brand.active else 'paused' }}</span>
+    &middot; Watching since {{ brand.created_at.strftime("%Y-%m-%d") if brand.created_at else "" }}
+    &middot; {{ hits|length }} hit{{ "s" if hits|length != 1 else "" }}
+  </p>
+  <p class="muted">Candidates for human review. Do not file a takedown from score alone.</p>
+
+  {% if hits %}
+  <table class="results">
+    <thead>
+      <tr><th>Domain</th><th>Score</th><th>Match</th><th>Label</th><th>Signals</th><th>Discovered</th><th>Evidence</th></tr>
+    </thead>
+    <tbody>
+    {% for h in hits %}
+      <tr>
+        <td>{{ h.candidate_domain }}</td>
+        <td class="score">{{ h.score }}</td>
+        <td>{{ h.match_score }}%</td>
+        <td><span class="label label-{{ h.label }}">{{ h.label }}</span></td>
+        <td class="signals">{{ h.signals|join(", ") }}</td>
+        <td>{{ h.discovered_at.strftime("%Y-%m-%d %H:%M UTC") if h.discovered_at else "" }}</td>
+        <td class="evidence">
+          {% if h.evidence.dns and (h.evidence.dns.a or h.evidence.dns.aaaa) %}
+            <a href="https://dnschecker.org/#A/{{ h.candidate_domain }}" target="_blank" rel="noopener">DNS</a>
+          {% endif %}
+          {% if h.evidence.certificate %}
+            <a href="https://crt.sh/?q={{ h.candidate_domain }}" target="_blank" rel="noopener">crt.sh</a>
+          {% endif %}
+          {% if h.evidence.page and h.evidence.page.reachable %}
+            <a href="http://{{ h.candidate_domain }}/" target="_blank" rel="noopener">site</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">No matches found yet. The watcher only sees certificates issued from now on — it won't retroactively check domains registered before this brand was added.</p>
+  {% endif %}
+</div>
+{% endblock %}
