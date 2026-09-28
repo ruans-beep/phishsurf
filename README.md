@@ -16,11 +16,20 @@ password.
    words (`shop`, `store`, `sale`, `login`, `checkout`, ...) across a set of
    TLDs (`com net org co io shop store online site app us co.uk`), plus
    homoglyph/punycode-style substitutions (flagged separately).
-3. **Enrich**, failing soft on every lookup so one flaky source never kills
+3. **Discover independently, not just from what was generated.** crt.sh is
+   searched with a prefix match on the brand token (`token%`) — this is a
+   broad, independent search of crt.sh's own certificate database, not
+   limited to the candidates generated in step 2, so it catches real
+   squats regardless of how many edits away from the brand token they are.
+   Any domain crt.sh or urlscan turns up that wasn't already generated
+   gets folded into the candidate list before scoring, ahead of the
+   generated ones (so it isn't crowded out by the raw candidate count when
+   results get capped to the requested limit).
+4. **Enrich**, failing soft on every lookup so one flaky source never kills
    the scan:
-   - DNS A/AAAA/CNAME resolution for every candidate
-   - [crt.sh](https://crt.sh) certificate transparency search for the brand
-     token and lookalikes, filtered to the lookback window
+   - DNS A/AAAA/CNAME resolution for every candidate (generated + discovered)
+   - [crt.sh](https://crt.sh) certificate transparency search (see above),
+     filtered to the lookback window
    - [urlscan.io](https://urlscan.io) search for `page.domain` / `page.url`
      matches (works without a key; set `URLSCAN_API_KEY` for higher quota)
    - RDAP registration lookup on any domain that resolved or turned up in
@@ -28,11 +37,11 @@ password.
    - A capped GET (8s timeout, 200KB body cap, no form submission) of the
      homepage for the top `FETCH_TOP_N` resolving hosts, looking for
      Shopify fingerprints, hotlinked official assets, and brand copy
-4. **Score** each candidate 0–100 from named signals (see table below) and
+5. **Score** each candidate 0–100 from named signals (see table below) and
    assign a label:
    `confirmed_lookalike_live`, `likely_clone_shop`, `cert_only_dormant`,
    `parked`, or `possible_false_positive`.
-5. **Persist** the scan and its top-scored results to Postgres.
+6. **Persist** the scan and its top-scored results to Postgres.
 
 Only one scan runs at a time (enforced with a Postgres row lock); anything
 submitted while a scan is running is queued and picked up automatically as
@@ -199,6 +208,13 @@ it over the Dockerfile CMD.)
   your network tolerates more concurrent resolver queries.
 - Every enrichment call fails soft — a missing crt.sh/urlscan/RDAP result
   lowers evidence for that candidate, it never aborts the scan.
+- crt.sh discovery can surface a lot more real domains than the generated
+  candidate list alone, especially against an active squat farm (seen in
+  testing: 200+ real, independently-confirmed domains for one brand). If
+  `candidate_count` on a finished scan is much larger than the "Result
+  limit" you set, raise the limit and re-run — the discovered domains rank
+  ahead of blind guesses already (they score higher, since they carry real
+  certificate evidence), but ties past the limit get cut off.
 - Candidate generation only covers close, single-edit-style lookalikes
   (edit-distance-1, adjacent-key typos, hyphenation, combosquat keywords,
   homoglyphs, TLD swaps) — this is intentional (see the scoring weights

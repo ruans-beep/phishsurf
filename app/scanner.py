@@ -100,8 +100,52 @@ def _run_scan(scan_id: str) -> None:
     since = datetime.utcnow() - timedelta(days=days)
 
     candidates = permute.generate_candidates(domain, limit=candidate_limit)
+    candidate_domains = {c["domain"] for c in candidates}
 
-    # --- DNS resolution for every candidate ---
+    # --- Certificate transparency & urlscan.io ---
+    # These are independent, broad searches against crt.sh's/urlscan's own
+    # databases (substring match on the brand token) — NOT limited to the
+    # domains we happened to guess. A domain like "bloomnuue.shop" contains
+    # "bloomnu" as a substring and will turn up here even though it's many
+    # edits away from the brand token and was never generated as a
+    # candidate. Folding these into the candidate list (ahead of the
+    # generated ones, so they get priority for the capped homepage-fetch
+    # stage below) is what lets a scan surface real, independently
+    # confirmed domains the permutation generator could never predict.
+    # Prefix search ("token%"), not a leading-wildcard substring search
+    # ("%token%"): crt.sh's public search silently returns zero results for
+    # a leading-wildcard query on a short generic fragment (confirmed via
+    # direct testing — "%bloomnu%" returned nothing while "bloomnu%"
+    # returned 4000+ real hits), almost certainly a query-cost limit on
+    # their end for an unbounded substring scan. A prefix search only
+    # catches squats where the brand token leads the domain, which misses
+    # prepended-word squats — but those are exactly what the permutation
+    # generator's own combosquat technique already covers directly, so
+    # this still adds real, independent discovery on top of it.
+    crt_hits_by_domain = {}
+    for query in {token, apex}:
+        for row in enrich.crtsh_search(f"{query}%", since):
+            name = row["name"].lstrip("*.").strip()
+            if name:
+                crt_hits_by_domain.setdefault(name, row)
+
+    urlscan_hits = {h["domain"] for h in enrich.urlscan_search(token, allow, since)}
+
+    discovered_domains = (set(crt_hits_by_domain.keys()) | urlscan_hits) - candidate_domains - allow
+    discovered_candidates = [
+        {
+            "domain": d,
+            "technique": "crtsh" if d in crt_hits_by_domain else "urlscan",
+            "homoglyph": False,
+            "edit_distance_1": False,
+            "combosquat": False,
+        }
+        for d in sorted(discovered_domains)
+        if d and "." in d
+    ]
+    candidates = discovered_candidates + candidates
+
+    # --- DNS resolution for every candidate (generated + discovered) ---
     # Plain resolver queries tolerate far more concurrency than the HTTP/RDAP
     # stages below, and this is the dominant cost of a scan (most candidates
     # don't resolve, so each eats a full DNS timeout) — so it gets its own,
@@ -118,17 +162,6 @@ def _run_scan(scan_id: str) -> None:
         or dns_map.get(c["domain"], {}).get("aaaa")
         or dns_map.get(c["domain"], {}).get("cname")
     ]
-
-    # --- Certificate transparency ---
-    crt_hits_by_domain = {}
-    for query in {token, apex}:
-        for row in enrich.crtsh_search(f"%{query}%", since):
-            name = row["name"].lstrip("*.").strip()
-            if name:
-                crt_hits_by_domain.setdefault(name, row)
-
-    # --- urlscan.io ---
-    urlscan_hits = {h["domain"] for h in enrich.urlscan_search(token, allow, since)}
 
     survivors = sorted(set(resolving) | set(crt_hits_by_domain.keys()) | urlscan_hits)
 
