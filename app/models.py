@@ -18,6 +18,7 @@ class Scan(Base):
     domain = Column(String, nullable=False, index=True)
     days = Column(Integer, nullable=False)
     limit = Column(Integer, nullable=False)
+    candidate_limit = Column(Integer, nullable=False, default=600)
     status = Column(String, nullable=False, default="queued")  # queued|running|done|error
     error_message = Column(Text, nullable=True)
     candidate_count = Column(Integer, nullable=False, default=0)

@@ -81,6 +81,8 @@ def new_scan_form(request: Request):
         "request": request,
         "default_days": config.LOOKBACK_DAYS_DEFAULT,
         "default_limit": config.DEFAULT_SCAN_LIMIT,
+        "default_candidates": config.DEFAULT_CANDIDATE_LIMIT,
+        "candidate_hard_cap": config.CANDIDATE_HARD_CAP,
         "error": None,
     })
 
@@ -92,6 +94,7 @@ def create_scan(
     domain: str = Form(...),
     days: Optional[int] = Form(None),
     limit: Optional[int] = Form(None),
+    candidates: Optional[int] = Form(None),
 ):
     if not auth.is_authenticated(request):
         return RedirectResponse("/login", status_code=303)
@@ -104,6 +107,8 @@ def create_scan(
             "request": request,
             "default_days": config.LOOKBACK_DAYS_DEFAULT,
             "default_limit": config.DEFAULT_SCAN_LIMIT,
+            "default_candidates": config.DEFAULT_CANDIDATE_LIMIT,
+            "candidate_hard_cap": config.CANDIDATE_HARD_CAP,
             "error": "Enter a valid domain, e.g. truniagen.com",
         }, status_code=400)
 
@@ -113,8 +118,17 @@ def create_scan(
     scan_limit = limit or config.DEFAULT_SCAN_LIMIT
     scan_limit = max(1, min(scan_limit, config.CANDIDATE_HARD_CAP))
 
+    scan_candidate_limit = candidates or config.DEFAULT_CANDIDATE_LIMIT
+    scan_candidate_limit = max(1, min(scan_candidate_limit, config.CANDIDATE_HARD_CAP))
+
     with SessionLocal() as db:
-        scan = Scan(domain=clean_domain, days=scan_days, limit=scan_limit, status="queued")
+        scan = Scan(
+            domain=clean_domain,
+            days=scan_days,
+            limit=scan_limit,
+            candidate_limit=scan_candidate_limit,
+            status="queued",
+        )
         db.add(scan)
         db.commit()
         db.refresh(scan)
@@ -141,6 +155,7 @@ def scan_json(scan_id: str, request: Request):
                 "domain": scan.domain,
                 "days": scan.days,
                 "limit": scan.limit,
+                "candidate_limit": scan.candidate_limit,
                 "status": scan.status,
                 "candidate_count": scan.candidate_count,
                 "created_at": scan.created_at.isoformat() if scan.created_at else None,

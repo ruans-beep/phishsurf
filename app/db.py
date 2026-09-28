@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 from . import config
@@ -25,3 +25,24 @@ def init_db():
     from . import models  # noqa: F401  (registers models on Base.metadata)
 
     Base.metadata.create_all(bind=engine)
+    _patch_missing_columns()
+
+
+def _patch_missing_columns():
+    """Add columns introduced after a table already existed in production.
+
+    There's no migration framework here on purpose (the schema is small
+    and changes rarely) — this just keeps an already-deployed Postgres
+    database in sync with new nullable-with-default columns instead of
+    requiring a manual ALTER TABLE or a full Alembic setup.
+    """
+    inspector = inspect(engine)
+    if "scans" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("scans")}
+    if "candidate_limit" in existing:
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE scans ADD COLUMN candidate_limit INTEGER NOT NULL DEFAULT 600"
+        ))

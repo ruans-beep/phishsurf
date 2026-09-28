@@ -92,17 +92,22 @@ def _run_scan(scan_id: str) -> None:
     with SessionLocal() as db:
         scan = db.get(Scan, scan_id)
         domain, days, result_limit = scan.domain, scan.days, scan.limit
+        candidate_limit = min(scan.candidate_limit or config.DEFAULT_CANDIDATE_LIMIT, config.CANDIDATE_HARD_CAP)
 
     apex = permute.apex_domain(domain)
     token = permute.brand_token(domain)
     allow = permute.allowlist_for(domain)
     since = datetime.utcnow() - timedelta(days=days)
 
-    candidates = permute.generate_candidates(domain, limit=config.CANDIDATE_HARD_CAP)
+    candidates = permute.generate_candidates(domain, limit=candidate_limit)
 
     # --- DNS resolution for every candidate ---
+    # Plain resolver queries tolerate far more concurrency than the HTTP/RDAP
+    # stages below, and this is the dominant cost of a scan (most candidates
+    # don't resolve, so each eats a full DNS timeout) — so it gets its own,
+    # higher-concurrency pool.
     dns_map = {}
-    with ThreadPoolExecutor(max_workers=config.MAX_CONCURRENCY) as pool:
+    with ThreadPoolExecutor(max_workers=config.DNS_CONCURRENCY) as pool:
         futures = {pool.submit(enrich.resolve_dns, c["domain"]): c["domain"] for c in candidates}
         for fut in as_completed(futures):
             dns_map[futures[fut]] = fut.result()

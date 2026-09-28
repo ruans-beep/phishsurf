@@ -117,7 +117,10 @@ generation and scoring/labeling directly — no database required.
 | `URLSCAN_API_KEY` | no | unset | Enables authenticated urlscan.io search |
 | `LOOKBACK_DAYS_DEFAULT` | no | `30` | Default lookback window on the new-scan form |
 | `FETCH_TOP_N` | no | `25` | How many resolving hosts get a homepage fetch |
-| `MAX_CONCURRENCY` | no | `5` | Thread pool size for concurrent enrichment |
+| `MAX_CONCURRENCY` | no | `5` | Thread pool size for RDAP lookups and homepage fetches |
+| `DNS_CONCURRENCY` | no | `25` | Thread pool size for DNS resolution (the dominant cost of a scan) |
+| `CANDIDATE_HARD_CAP` | no | `3000` | Absolute ceiling on candidates per scan, regardless of the form |
+| `DEFAULT_CANDIDATE_LIMIT` | no | `600` | Default "candidates to check" value on the new-scan form |
 
 Generate a `SECRET_KEY` with:
 
@@ -148,9 +151,13 @@ it over the Dockerfile CMD.)
 
 ## Notes and limits
 
-- A scan with a large candidate pool can take several minutes: DNS
-  resolution alone is `CANDIDATE_HARD_CAP` lookups at `MAX_CONCURRENCY`
-  concurrency, and non-resolving domains eat their full timeout.
+- Scan duration scales with the "candidates to check" value on the new-scan
+  form (default `DEFAULT_CANDIDATE_LIMIT`, hard-capped at
+  `CANDIDATE_HARD_CAP`): most candidates don't resolve, so each eats close
+  to the full DNS timeout. At the defaults (600 candidates,
+  `DNS_CONCURRENCY=25`) a scan finishes in a few minutes; pushing candidates
+  toward the 3,000 ceiling can take 10+ minutes. Raise `DNS_CONCURRENCY` if
+  your network tolerates more concurrent resolver queries.
 - Every enrichment call fails soft — a missing crt.sh/urlscan/RDAP result
   lowers evidence for that candidate, it never aborts the scan.
 - This tool surfaces candidates for a human to review. Scores are a

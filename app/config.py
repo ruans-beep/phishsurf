@@ -9,11 +9,27 @@ URLSCAN_API_KEY = os.environ.get("URLSCAN_API_KEY") or None
 
 LOOKBACK_DAYS_DEFAULT = int(os.environ.get("LOOKBACK_DAYS_DEFAULT", "30"))
 FETCH_TOP_N = int(os.environ.get("FETCH_TOP_N", "25"))
+
+# Thread pool size for RDAP lookups and homepage fetches — kept
+# conservative because those hit real external servers/websites where
+# politeness matters.
 MAX_CONCURRENCY = int(os.environ.get("MAX_CONCURRENCY", "5"))
+
+# Thread pool size for DNS resolution specifically. This is the dominant
+# cost of a scan (most candidates don't resolve, so each eats a full DNS
+# timeout) and plain resolver queries tolerate much higher concurrency
+# than HTTP/RDAP calls do, so it gets its own, higher default.
+DNS_CONCURRENCY = int(os.environ.get("DNS_CONCURRENCY", "25"))
 
 # Hard ceiling on how many lookalike candidates a single scan will generate
 # and enrich, regardless of what the requester asks for.
 CANDIDATE_HARD_CAP = int(os.environ.get("CANDIDATE_HARD_CAP", "3000"))
+
+# Default number of candidates a scan checks when the requester doesn't
+# override it on the new-scan form. Kept well under CANDIDATE_HARD_CAP so
+# a default scan finishes in a few minutes; raising it trades speed for
+# broader coverage.
+DEFAULT_CANDIDATE_LIMIT = int(os.environ.get("DEFAULT_CANDIDATE_LIMIT", "600"))
 
 # Default number of top-scored results kept per scan when the requester
 # doesn't specify a "limit" on the new-scan form.
